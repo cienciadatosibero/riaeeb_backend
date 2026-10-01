@@ -25,14 +25,22 @@ export async function getUserSession(id) {
   );
   const [profiles] = await pool.query(
     `SELECT i.*, ins.nombre institucion_catalogo, ins.logo_url logo_catalogo,
-      GROUP_CONCAT(DISTINCT a.id ORDER BY a.nombre) area_ids,
-      GROUP_CONCAT(DISTINCT a.nombre ORDER BY a.nombre SEPARATOR '||') areas
+      (
+        SELECT GROUP_CONCAT(DISTINCT ia2.area_id ORDER BY a2.nombre)
+        FROM investigador_areas ia2
+        LEFT JOIN areas_conocimiento a2 ON a2.id=ia2.area_id
+        WHERE ia2.investigador_id=i.id
+      ) area_ids,
+      (
+        SELECT GROUP_CONCAT(DISTINCT a3.nombre ORDER BY a3.nombre SEPARATOR '||')
+        FROM investigador_areas ia3
+        JOIN areas_conocimiento a3 ON a3.id=ia3.area_id
+        WHERE ia3.investigador_id=i.id
+      ) areas
      FROM investigadores i
      LEFT JOIN instituciones ins ON ins.id=i.institucion_id
-     LEFT JOIN investigador_areas ia ON ia.investigador_id=i.id
-     LEFT JOIN areas_conocimiento a ON a.id=ia.area_id
      WHERE i.usuario_id=?
-     GROUP BY i.id LIMIT 1`, [id]
+     LIMIT 1`, [id]
   );
   const profile = profiles[0] ? {
     ...profiles[0],
