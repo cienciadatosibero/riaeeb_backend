@@ -1,5 +1,16 @@
 import * as M from '../models/seguridad.model.js';
 
+
+function withValidCvu(body = {}, extra = {}) {
+  const cvu = String(body.cvu_rizoma ?? '').trim();
+  if (cvu && !/^\d{7}$/.test(cvu)) {
+    const error = new Error('El CVU Rizoma debe contener exactamente 7 dígitos.');
+    error.statusCode = 400;
+    throw error;
+  }
+  return { ...body, cvu_rizoma: cvu || null, ...extra };
+}
+
 const wrap = (fn, status=200) => async (req,res,next) => {
   try { res.status(status).json({ success:true, data: await fn(req,res) }); }
   catch (e) { next(e); }
@@ -21,6 +32,6 @@ export const updateRole = wrap((req) => M.updateRole(+req.params.id, req.body));
 export const removeRole = wrap((req) => M.removeRole(+req.params.id));
 
 export const listUsers = wrap(() => M.listUsers());
-export const createUser = wrap((req) => M.createUser({ ...req.body, aprobado_por: req.user?.usuario }), 201);
-export const updateUser = wrap((req) => M.updateUser(+req.params.id, { ...req.body, aprobado_por: req.user?.usuario }));
+export const createUser = wrap((req) => M.createUser(withValidCvu(req.body, { aprobado_por: req.user?.usuario })), 201);
+export const updateUser = wrap((req) => M.updateUser(+req.params.id, withValidCvu(req.body, { aprobado_por: req.user?.usuario })));
 export const removeUser = wrap((req) => M.removeUser(+req.params.id));

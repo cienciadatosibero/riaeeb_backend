@@ -11,6 +11,10 @@ export async function registrar(req,res,next) {
     if (String(b.semblanza || '').length > 600) {
       return res.status(400).json({ success:false, message:'La semblanza no puede exceder 600 caracteres.' });
     }
+    const cvu = String(b.cvu_rizoma ?? '').trim();
+    if (cvu && !/^\d{7}$/.test(cvu)) {
+      return res.status(400).json({ success:false, message:'El CVU Rizoma debe contener exactamente 7 dígitos.' });
+    }
     const [[rol]] = await pool.query(`SELECT id FROM seguridad_roles WHERE clave='investigador' AND activo=1 LIMIT 1`);
     if (!rol) throw new Error('El rol de investigador no está configurado. Ejecuta la migración v4.');
 
@@ -31,7 +35,7 @@ export async function registrar(req,res,next) {
       foto_url: b.foto_url,
       logo_institucion_url: b.logo_institucion_url,
       orcid: b.orcid,
-      cvu_rizoma: b.cvu_rizoma,
+      cvu_rizoma: cvu || null,
       area_ids: b.area_ids || [],
     });
     res.status(201).json({ success:true, data:{ pendiente:true }, message:'Registro recibido. El administrador debe activar tu cuenta.' });
