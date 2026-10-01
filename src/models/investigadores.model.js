@@ -26,20 +26,39 @@ const baseSelect=`
 
 const map=(rows)=>rows.map((r)=>({...r,area_ids:splitIds(r.area_ids),areas:splitText(r.areas)}));
 
-// Solo docentes/investigadores forman parte de "Investigadores de la Red".
-// Los estudiantes nunca se publican en esta sección.
 export async function findAll(){
+  // "Investigadores de la Red" NO es un catálogo independiente.
+  // Solo muestra usuarios reales, activos, con rol investigador.
   const [rows]=await pool.query(`${baseSelect}
-    WHERE i.activo=1 AND i.tipo_perfil='investigador' AND (i.usuario_id IS NULL OR u.activo=1)
+    WHERE i.activo=1
+      AND i.tipo_perfil='investigador'
+      AND i.usuario_id IS NOT NULL
+      AND u.activo=1
+      AND EXISTS (
+        SELECT 1
+        FROM usuario_roles ur
+        JOIN seguridad_roles r ON r.id=ur.rol_id AND r.activo=1
+        WHERE ur.usuario_id=i.usuario_id
+          AND LOWER(TRIM(r.clave))='investigador'
+      )
     ORDER BY i.orden ASC,i.nombre ASC`);
   return map(rows);
 }
 
-// El panel "Investigadores de la Red" administra exclusivamente perfiles investigador.
 export async function findAllAdmin(){
+  // El panel administrativo lista únicamente perfiles ligados a usuarios
+  // que actualmente tienen el rol investigador.
   const [rows]=await pool.query(`${baseSelect}
     WHERE i.tipo_perfil='investigador'
-    ORDER BY i.activo DESC,i.orden ASC,i.nombre ASC`);
+      AND i.usuario_id IS NOT NULL
+      AND EXISTS (
+        SELECT 1
+        FROM usuario_roles ur
+        JOIN seguridad_roles r ON r.id=ur.rol_id
+        WHERE ur.usuario_id=i.usuario_id
+          AND LOWER(TRIM(r.clave))='investigador'
+      )
+    ORDER BY u.activo DESC,i.orden ASC,i.nombre ASC`);
   return map(rows);
 }
 
