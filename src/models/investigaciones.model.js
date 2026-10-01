@@ -1,4 +1,5 @@
 import pool from '../config/db.js';
+import { getColumns, tableExists } from '../utils/schema.js';
 
 const parseRefs = (v) => {
   if (!v) return [];
@@ -7,6 +8,7 @@ const parseRefs = (v) => {
   return String(v).split(/\n+/).map((x)=>x.trim()).filter(Boolean);
 };
 const refsDb = (v) => JSON.stringify(parseRefs(v).slice(0,20));
+
 function validateProject(d) {
   const required = ['titulo','resumen','impacto_cientifico','impacto_social','aportaciones_solucion','acceso_universal'];
   if (required.some((k) => !String(d[k] || '').trim())) {
@@ -19,18 +21,69 @@ function validateProject(d) {
   }
 }
 
+async function publicRows() {
+  if (!(await tableExists('investigaciones'))) return [];
+  const cols = await getColumns('investigaciones');
+  const pick = (name, fallback='NULL') => cols.has(name) ? `i.\`${name}\`` : `${fallback} AS \`${name}\``;
+
+  const select = [
+    pick('id'), pick('titulo', "''"), pick('resumen', "''"),
+    pick('impacto_cientifico'), pick('impacto_social'), pick('aportaciones_solucion'), pick('acceso_universal'),
+    pick('autores'), pick('area'), pick('area_id'), pick('anio'), pick('enlace'), pick('tipo'), pick('tipo_investigacion_id'),
+    pick('estatus', "'en_proceso'"), pick('referencias'), pick('propietario_usuario_id'), pick('publicado', '1'), pick('created_at')
+  ];
+  let sql = `SELECT ${select.join(', ')} FROM investigaciones i`;
+  if (cols.has('publicado')) sql += ` WHERE i.publicado=1`;
+  if (cols.has('created_at')) sql += ` ORDER BY i.created_at DESC, i.id DESC`;
+  else if (cols.has('anio')) sql += ` ORDER BY i.anio DESC, i.id DESC`;
+  else sql += ` ORDER BY i.id DESC`;
+
+  const [rows] = await pool.query(sql);
+
+  let areaNames = new Map();
+  if (cols.has('area_id') && await tableExists('areas_conocimiento')) {
+    const [a] = await pool.query(`SELECT id,nombre FROM areas_conocimiento`);
+    areaNames = new Map(a.map((x)=>[Number(x.id),x.nombre]));
+  }
+  let typeNames = new Map();
+  if (cols.has('tipo_investigacion_id') && await tableExists('tipos_investigacion')) {
+    const [t] = await pool.query(`SELECT id,nombre FROM tipos_investigacion`);
+    typeNames = new Map(t.map((x)=>[Number(x.id),x.nombre]));
+  }
+
+  return rows.map((r)=>({
+    ...r,
+    area_nombre: areaNames.get(Number(r.area_id)) || r.area || null,
+    tipo_nombre: typeNames.get(Number(r.tipo_investigacion_id)) || r.tipo || null,
+    estatus: r.estatus || 'en_proceso',
+    referencias: parseRefs(r.referencias),
+    profesores: [],
+    estudiantes: [],
+    participando: false,
+  }));
+}
+
 async function attachParticipants(rows, currentUserId=null) {
   if (!rows.length) return rows;
-  const ids = rows.map((r)=>r.id);
-  const [people] = await pool.query(`
-    SELECT ip.investigacion_id,ip.usuario_id,ip.tipo,u.nombre_completo,
-      p.foto_url,p.institucion,ins.nombre institucion_catalogo
-    FROM investigacion_participantes ip
-    JOIN usuarios u ON u.id=ip.usuario_id AND u.activo=1
-    LEFT JOIN investigadores p ON p.usuario_id=u.id
-    LEFT JOIN instituciones ins ON ins.id=p.institucion_id
-    WHERE ip.investigacion_id IN (${ids.map(()=>'?').join(',')})
-    ORDER BY ip.tipo,u.nombre_completo`, ids);
+  const hasParts = await tableExists('investigacion_participantes');
+  const hasUsers = await tableExists('usuarios');
+  if (!hasParts || !hasUsers) return rows;
+
+  const ids = rows.map((r)=>r.id).filter(Boolean);
+  const hasInvestigadores = await tableExists('investigadores');
+  const invCols = hasInvestigadores ? await getColumns('investigadores') : new Set();
+  const canProfile = hasInvestigadores && invCols.has('usuario_id');
+  const canInst = canProfile && invCols.has('institucion_id') && await tableExists('instituciones');
+
+  let sql = `SELECT ip.investigacion_id,ip.usuario_id,ip.tipo,u.nombre_completo`;
+  sql += canProfile ? `,p.foto_url${invCols.has('institucion') ? ',p.institucion' : ',NULL AS institucion'}` : `,NULL AS foto_url,NULL AS institucion`;
+  sql += canInst ? `,ins.nombre AS institucion_catalogo` : `,NULL AS institucion_catalogo`;
+  sql += ` FROM investigacion_participantes ip JOIN usuarios u ON u.id=ip.usuario_id AND u.activo=1`;
+  if (canProfile) sql += ` LEFT JOIN investigadores p ON p.usuario_id=u.id`;
+  if (canInst) sql += ` LEFT JOIN instituciones ins ON ins.id=p.institucion_id`;
+  sql += ` WHERE ip.investigacion_id IN (${ids.map(()=>'?').join(',')}) ORDER BY ip.tipo,u.nombre_completo`;
+
+  const [people] = await pool.query(sql, ids);
   const grouped = new Map();
   for (const p of people) {
     if (!grouped.has(p.investigacion_id)) grouped.set(p.investigacion_id, { profesores:[], estudiantes:[] });
@@ -46,7 +99,6 @@ async function attachParticipants(rows, currentUserId=null) {
     const g = grouped.get(r.id) || { profesores:[], estudiantes:[] };
     return {
       ...r,
-      referencias: parseRefs(r.referencias),
       profesores:g.profesores,
       estudiantes:g.estudiantes,
       participando: currentUserId ? people.some((p)=>p.investigacion_id===r.id && Number(p.usuario_id)===Number(currentUserId)) : false,
@@ -54,40 +106,41 @@ async function attachParticipants(rows, currentUserId=null) {
   });
 }
 
-const baseSelect = `
-  SELECT i.id,i.titulo,i.resumen,i.impacto_cientifico,i.impacto_social,i.aportaciones_solucion,i.acceso_universal,
-    i.autores,i.area,i.area_id,COALESCE(a.nombre,i.area) area_nombre,i.anio,i.enlace,i.tipo,i.tipo_investigacion_id,
-    COALESCE(t.nombre,i.tipo) tipo_nombre,i.estatus,i.referencias,i.propietario_usuario_id,i.publicado,i.created_at
-  FROM investigaciones i
-  LEFT JOIN areas_conocimiento a ON a.id=i.area_id
-  LEFT JOIN tipos_investigacion t ON t.id=i.tipo_investigacion_id`;
-
 export async function findAll() {
-  const [rows] = await pool.query(`${baseSelect} WHERE i.publicado=1 ORDER BY i.created_at DESC,i.id DESC`);
-  return attachParticipants(rows);
+  return attachParticipants(await publicRows());
 }
 
 export async function findForUser(user) {
-  const roles = user?.roles || [];
-  let sql = `${baseSelect}`;
-  let args = [];
-  if (roles.includes('administrador')) {
-    sql += ` ORDER BY i.created_at DESC,i.id DESC`;
-  } else if (roles.includes('investigador')) {
-    sql += ` WHERE i.propietario_usuario_id=? OR EXISTS (
-      SELECT 1 FROM investigacion_participantes ip WHERE ip.investigacion_id=i.id AND ip.usuario_id=? AND ip.tipo='profesor'
-    ) ORDER BY i.created_at DESC,i.id DESC`;
-    args = [user.id,user.id];
-  } else {
-    sql += ` WHERE i.publicado=1 ORDER BY i.created_at DESC,i.id DESC`;
+  const cols = await getColumns('investigaciones');
+  if (!cols.has('propietario_usuario_id') || !(await tableExists('usuarios'))) {
+    return attachParticipants(await publicRows(), user?.id);
   }
+  const roles = user?.roles || [];
+  if (!roles.includes('administrador') && !roles.includes('investigador')) {
+    return attachParticipants(await publicRows(), user?.id);
+  }
+
+  const selectCols = [...cols].map((c)=>`i.\`${c}\``).join(', ');
+  let sql = `SELECT ${selectCols} FROM investigaciones i`;
+  const args = [];
+  if (roles.includes('investigador')) {
+    if (await tableExists('investigacion_participantes')) {
+      sql += ` WHERE i.propietario_usuario_id=? OR EXISTS (SELECT 1 FROM investigacion_participantes ip WHERE ip.investigacion_id=i.id AND ip.usuario_id=? AND ip.tipo='profesor')`;
+      args.push(user.id,user.id);
+    } else {
+      sql += ` WHERE i.propietario_usuario_id=?`;
+      args.push(user.id);
+    }
+  }
+  sql += cols.has('created_at') ? ` ORDER BY i.created_at DESC,i.id DESC` : ` ORDER BY i.id DESC`;
   const [rows] = await pool.query(sql,args);
-  return attachParticipants(rows,user?.id);
+  const normalized = rows.map((r)=>({ ...r, referencias:parseRefs(r.referencias), profesores:[], estudiantes:[], participando:false, area_nombre:r.area, tipo_nombre:r.tipo }));
+  return attachParticipants(normalized,user?.id);
 }
 
 export async function findById(id) {
-  const [rows] = await pool.query(`${baseSelect} WHERE i.id=?`, [id]);
-  return (await attachParticipants(rows))[0] || null;
+  const rows = await publicRows();
+  return (await attachParticipants(rows.filter((r)=>Number(r.id)===Number(id))))[0] || null;
 }
 
 async function ownerAllowed(id,user) {

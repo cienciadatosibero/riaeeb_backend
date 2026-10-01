@@ -1,14 +1,26 @@
 import pool from '../config/db.js';
+import { getColumns, tableExists } from '../utils/schema.js';
 
 export async function findPublic() {
-  const [rows] = await pool.query(`
-    SELECT p.id,p.titulo,p.resumen,p.autores,p.tipo_producto,p.anio,p.enlace,p.created_at,
-      u.nombre_completo creador
-    FROM publicaciones_red p
-    LEFT JOIN usuarios u ON u.id=p.creador_usuario_id
-    WHERE p.publicado=1
-    ORDER BY COALESCE(p.anio,YEAR(p.created_at)) DESC,p.id DESC
-  `);
+  if (!(await tableExists('publicaciones_red'))) return [];
+  const cols = await getColumns('publicaciones_red');
+  const pick = (name, fallback='NULL') => cols.has(name) ? `p.\`${name}\`` : `${fallback} AS \`${name}\``;
+  const hasUsers = cols.has('creador_usuario_id') && await tableExists('usuarios');
+
+  const select = [
+    pick('id'), pick('titulo', "''"), pick('resumen'), pick('autores', "''"),
+    pick('tipo_producto', "'Producto de la Red'"), pick('anio'), pick('enlace'), pick('created_at')
+  ];
+  select.push(hasUsers ? `u.nombre_completo AS creador` : `NULL AS creador`);
+
+  let sql = `SELECT ${select.join(', ')} FROM publicaciones_red p`;
+  if (hasUsers) sql += ` LEFT JOIN usuarios u ON u.id=p.creador_usuario_id`;
+  if (cols.has('publicado')) sql += ` WHERE p.publicado=1`;
+  if (cols.has('anio') && cols.has('created_at')) sql += ` ORDER BY COALESCE(p.anio,YEAR(p.created_at)) DESC,p.id DESC`;
+  else if (cols.has('anio')) sql += ` ORDER BY p.anio DESC,p.id DESC`;
+  else sql += ` ORDER BY p.id DESC`;
+
+  const [rows] = await pool.query(sql);
   return rows;
 }
 

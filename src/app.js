@@ -1,9 +1,9 @@
-// backend/src/app.js
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import apiRoutes from './routes/index.js';
 import { UPLOADS_DIR } from './config/upload.js';
+import pool from './config/db.js';
 import { errorHandler, notFound } from './middlewares/errorHandler.js';
 
 const app = express();
@@ -24,9 +24,43 @@ app.use(cors({
 app.use(express.json());
 app.use('/uploads', express.static(UPLOADS_DIR));
 
-// version: te dice qué build está corriendo realmente
-app.get('/api/health', (req, res) => {
-  res.json({ success: true, data: { status: 'ok', version: 'v5-rbac-red', service: 'red-ia-equidad-api' } });
+app.get('/api/health', async (req, res) => {
+  try {
+    const [[row]] = await pool.query('SELECT DATABASE() AS db, 1 AS ok');
+    return res.json({
+      success: true,
+      data: {
+        status: 'ok',
+        version: 'v6-schema-aware-public',
+        service: 'red-ia-equidad-api',
+        database: row?.db || null,
+      },
+    });
+  } catch (err) {
+    console.error('[DB HEALTH ERROR]', err?.code, err?.message);
+    return res.status(500).json({
+      success: false,
+      message: 'El backend está activo, pero no puede consultar la base de datos.',
+      code: err?.code || 'DB_CONNECTION_ERROR',
+    });
+  }
+});
+
+// Diagnóstico temporal y seguro: no expone credenciales ni datos, solo indica
+// qué tablas existen en la BD a la que está conectado Vercel.
+app.get('/api/db-status', async (req, res) => {
+  try {
+    const names = ['investigadores','investigaciones','publicaciones_red','about','usuarios','areas_conocimiento','tipos_investigacion','investigacion_participantes'];
+    const [rows] = await pool.query(
+      `SELECT TABLE_NAME AS nombre
+         FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME IN (${names.map(()=>'?').join(',')})`,
+      names
+    );
+    const found = new Set(rows.map((r)=>r.nombre));
+    res.json({ success:true, data:Object.fromEntries(names.map((n)=>[n,found.has(n)])) });
+  } catch (err) { errorHandler(err,req,res,()=>{}); }
 });
 
 app.use('/api', apiRoutes);
