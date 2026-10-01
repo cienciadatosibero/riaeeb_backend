@@ -1,69 +1,84 @@
+// backend/src/app.js
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import apiRoutes from './routes/index.js';
 import { UPLOADS_DIR } from './config/upload.js';
-import pool from './config/db.js';
 import { errorHandler, notFound } from './middlewares/errorHandler.js';
 
 const app = express();
 
-const PERMITIDOS = (process.env.CORS_ORIGIN || '')
-  .split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
+// Orígenes de producción que SIEMPRE deben poder consumir la API.
+// Se agregan además los definidos en CORS_ORIGIN de Vercel.
+const ORIGENES_FIJOS = new Set([
+  'https://riaaeb.vercel.app',
+  'http://localhost:5173',
+  'http://localhost:4173',
+  'http://localhost:3000',
+]);
 
-app.use(cors({
+const ORIGENES_ENV = String(process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((s) => s.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
+for (const origen of ORIGENES_ENV) ORIGENES_FIJOS.add(origen);
+
+function origenPermitido(origin) {
+  if (!origin) return true;
+
+  const limpio = String(origin).trim().replace(/\/+$/, '');
+
+  if (ORIGENES_FIJOS.has(limpio)) return true;
+
+  // Permite previews del MISMO proyecto frontend en Vercel:
+  // riaaeb-git-...vercel.app, riaaeb-xxxxx.vercel.app, etc.
+  if (/^https:\/\/riaaeb(?:-[a-z0-9-]+)?\.vercel\.app$/i.test(limpio)) {
+    return true;
+  }
+
+  return false;
+}
+
+const corsOptions = {
   origin(origin, cb) {
-    if (!origin) return cb(null, true);
-    const limpio = origin.replace(/\/+$/, '');
-    if (PERMITIDOS.length === 0 || PERMITIDOS.includes(limpio)) return cb(null, true);
+    if (origenPermitido(origin)) return cb(null, true);
     return cb(null, false);
   },
   credentials: true,
-}));
+  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With'],
+  optionsSuccessStatus: 204,
+  maxAge: 86400,
+};
 
-app.use(express.json());
-app.use('/uploads', express.static(UPLOADS_DIR));
+// CORS debe ejecutarse ANTES de cualquier ruta.
+app.use(cors(corsOptions));
 
-app.get('/api/health', async (req, res) => {
-  try {
-    const [[row]] = await pool.query('SELECT DATABASE() AS db, 1 AS ok');
-    return res.json({
-      success: true,
-      data: {
-        status: 'ok',
-        version: 'v6-schema-aware-public',
-        service: 'red-ia-equidad-api',
-        database: row?.db || null,
-      },
-    });
-  } catch (err) {
-    console.error('[DB HEALTH ERROR]', err?.code, err?.message);
-    return res.status(500).json({
-      success: false,
-      message: 'El backend está activo, pero no puede consultar la base de datos.',
-      code: err?.code || 'DB_CONNECTION_ERROR',
-    });
-  }
-});
+// Responder explícitamente los preflight antes de tocar auth, BD o rutas.
+app.options('*', cors(corsOptions));
 
-// Diagnóstico temporal y seguro: no expone credenciales ni datos, solo indica
-// qué tablas existen en la BD a la que está conectado Vercel.
-app.get('/api/db-status', async (req, res) => {
-  try {
-    const names = ['investigadores','investigaciones','publicaciones_red','about','usuarios','areas_conocimiento','tipos_investigacion','investigacion_participantes'];
-    const [rows] = await pool.query(
-      `SELECT TABLE_NAME AS nombre
-         FROM INFORMATION_SCHEMA.TABLES
-        WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME IN (${names.map(()=>'?').join(',')})`,
-      names
-    );
-    const found = new Set(rows.map((r)=>r.nombre));
-    res.json({ success:true, data:Object.fromEntries(names.map((n)=>[n,found.has(n)])) });
-  } catch (err) { errorHandler(err,req,res,()=>{}); }
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Compatibilidad con imágenes antiguas.
+if (UPLOADS_DIR) {
+  app.use('/uploads', express.static(UPLOADS_DIR));
+}
+
+app.get('/api/health', (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      status: 'ok',
+      version: 'v8-cors-login-fix',
+      service: 'red-ia-equidad-api',
+    },
+  });
 });
 
 app.use('/api', apiRoutes);
+
 app.use(notFound);
 app.use(errorHandler);
 
