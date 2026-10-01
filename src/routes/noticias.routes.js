@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import * as c from '../controllers/noticias.controller.js';
-import { auth } from '../middlewares/auth.js';
+import { auth, requirePermission } from '../middlewares/auth.js';
 const r = Router();
 r.get('/', c.getAll);
 r.get('/:id', c.getById);
-r.post('/', auth, c.create);
-r.put('/:id', auth, c.update);
-r.delete('/:id', auth, c.remove);
+r.post('/', auth, requirePermission('noticias','escritura'), c.create);
+r.put('/:id', auth, requirePermission('noticias','actualizar'), c.update);
+r.delete('/:id', auth, requirePermission('noticias','eliminar'), c.remove);
 export default r;

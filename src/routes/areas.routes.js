@@ -1,0 +1,10 @@
+import { Router } from 'express';
+import * as c from '../controllers/catalogos.controller.js';
+import { auth, requirePermission } from '../middlewares/auth.js';
+const r = Router();
+r.get('/', c.listar('areas'));
+r.get('/admin', auth, requirePermission('areas_conocimiento','lectura'), c.listarAdmin('areas'));
+r.post('/', auth, requirePermission('areas_conocimiento','escritura'), c.crear('areas'));
+r.put('/:id', auth, requirePermission('areas_conocimiento','actualizar'), c.actualizar('areas'));
+r.delete('/:id', auth, requirePermission('areas_conocimiento','eliminar'), c.eliminar('areas'));
+export default r;

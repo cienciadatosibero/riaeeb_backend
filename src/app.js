@@ -26,7 +26,7 @@ app.use('/uploads', express.static(UPLOADS_DIR));
 
 // version: te dice qué build está corriendo realmente
 app.get('/api/health', (req, res) => {
-  res.json({ success: true, data: { status: 'ok', version: 'v4', service: 'red-ia-equidad-api' } });
+  res.json({ success: true, data: { status: 'ok', version: 'v5-rbac-red', service: 'red-ia-equidad-api' } });
 });
 
 app.use('/api', apiRoutes);

@@ -1,0 +1,10 @@
+import { Router } from 'express';
+import * as c from '../controllers/publicaciones.controller.js';
+import { auth, requirePermission, requireRole } from '../middlewares/auth.js';
+const r = Router();
+r.get('/', c.publicList);
+r.get('/admin', auth, requirePermission('publicaciones','lectura'), c.adminList);
+r.post('/', auth, requirePermission('publicaciones','escritura'), requireRole('investigador'), c.create);
+r.put('/:id', auth, requirePermission('publicaciones','actualizar'), requireRole('investigador'), c.update);
+r.delete('/:id', auth, requirePermission('publicaciones','eliminar'), requireRole('investigador'), c.remove);
+export default r;

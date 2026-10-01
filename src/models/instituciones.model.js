@@ -14,14 +14,14 @@ export async function findById(id) {
 export async function create(d) {
   const [r] = await pool.query(
     `INSERT INTO instituciones (nombre, logo_url, enlace, orden) VALUES (?,?,?,?)`,
-    [d.nombre, d.logo_url, d.enlace, d.orden || 0]
+    [d.nombre, d.logo_url || '', d.enlace || null, d.orden || 0]
   );
   return { id: r.insertId, ...d };
 }
 export async function update(id, d) {
   await pool.query(
     `UPDATE instituciones SET nombre=?, logo_url=?, enlace=?, orden=? WHERE id=?`,
-    [d.nombre, d.logo_url, d.enlace, d.orden || 0, id]
+    [d.nombre, d.logo_url || '', d.enlace || null, d.orden || 0, id]
   );
   return { id, ...d };
 }

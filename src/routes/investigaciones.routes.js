@@ -1,9 +1,12 @@
 import { Router } from 'express';
 import * as c from '../controllers/investigaciones.controller.js';
-import { auth } from '../middlewares/auth.js';
+import { auth, requirePermission, requireRole } from '../middlewares/auth.js';
 const r = Router();
 r.get('/', c.getAll);
-r.post('/', auth, c.create);
-r.put('/:id', auth, c.update);
-r.delete('/:id', auth, c.remove);
+r.get('/admin', auth, requirePermission('investigaciones','lectura'), c.getAdmin);
+r.post('/', auth, requirePermission('investigaciones','escritura'), requireRole('investigador'), c.create);
+r.post('/:id/participar', auth, requirePermission('investigaciones','escritura'), c.participate);
+r.delete('/:id/participar', auth, requirePermission('investigaciones','escritura'), c.leave);
+r.put('/:id', auth, requirePermission('investigaciones','actualizar'), c.update);
+r.delete('/:id', auth, requirePermission('investigaciones','eliminar'), c.remove);
 export default r;

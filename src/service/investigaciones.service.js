@@ -1,5 +1,8 @@
 import * as M from '../models/investigaciones.model.js';
 export const listar = () => M.findAll();
-export const crear = (d) => M.create(d);
-export const actualizar = (id, d) => M.update(id, d);
-export const eliminar = (id) => M.remove(id);
+export const listarUsuario = (u) => M.findForUser(u);
+export const crear = (d,u) => M.create(d,u);
+export const actualizar = (id,d,u) => M.update(id,d,u);
+export const eliminar = (id,u) => M.remove(id,u);
+export const participar = (id,u) => M.participate(id,u);
+export const salir = (id,u) => M.leave(id,u);
