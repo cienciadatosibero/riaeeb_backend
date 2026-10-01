@@ -15,6 +15,8 @@ import seguridad from './seguridad.routes.js';
 import registro from './registro.routes.js';
 import dashboard from './dashboard.routes.js';
 import perfil from './perfil.routes.js';
+import portada from './portada.routes.js';
+import areasInvestigacion from './areas-investigacion.routes.js';
 
 const router = Router();
 router.use('/auth', auth);
@@ -32,4 +34,6 @@ router.use('/seguridad', seguridad);
 router.use('/registro', registro);
 router.use('/dashboard', dashboard);
 router.use('/perfil', perfil);
+router.use('/portada', portada);
+router.use('/areas-investigacion', areasInvestigacion);
 export default router;

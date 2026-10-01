@@ -1,7 +1,9 @@
-// backend/src/routes/contacto.routes.js
 import { Router } from 'express';
 import * as ctrl from '../controllers/contacto.controller.js';
-
-const router = Router();
-router.post('/', ctrl.create);
+import { auth, requirePermission } from '../middlewares/auth.js';
+const router=Router();
+router.get('/admin',auth,requirePermission('mensajes_contacto','lectura'),ctrl.listAdmin);
+router.put('/:id/leido',auth,requirePermission('mensajes_contacto','actualizar'),ctrl.mark);
+router.delete('/:id',auth,requirePermission('mensajes_contacto','eliminar'),ctrl.remove);
+router.post('/',ctrl.create);
 export default router;

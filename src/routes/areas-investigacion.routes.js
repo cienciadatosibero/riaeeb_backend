@@ -1,0 +1,10 @@
+import { Router } from 'express';
+import * as c from '../controllers/areas-investigacion.controller.js';
+import { auth, requirePermission } from '../middlewares/auth.js';
+const r=Router();
+r.get('/',c.listPublic);
+r.get('/admin',auth,requirePermission('areas_investigacion','lectura'),c.listAdmin);
+r.post('/',auth,requirePermission('areas_investigacion','escritura'),c.create);
+r.put('/:id',auth,requirePermission('areas_investigacion','actualizar'),c.update);
+r.delete('/:id',auth,requirePermission('areas_investigacion','eliminar'),c.remove);
+export default r;

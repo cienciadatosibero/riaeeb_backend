@@ -4,7 +4,66 @@ import { hashPassword } from '../utils/password.js';
 const splitIds = (v) => String(v || '').split(',').filter(Boolean).map(Number);
 const splitText = (v) => String(v || '').split('||').filter(Boolean);
 
+let catalogoSeguridadListo=false;
+async function ensureSystemModules(){
+  if(catalogoSeguridadListo) return;
+
+  const modulos=[
+    ['dashboard','Dashboard','Indicadores generales y estadísticas de la Red'],
+    ['investigaciones','Investigaciones','Proyectos de investigación de la Red'],
+    ['investigadores','Personas de la Red','Perfiles públicos de profesores e investigadores'],
+    ['publicaciones','Publicaciones de la Red','Productos generados por integrantes de la Red'],
+    ['perfil','Mi Perfil','Consulta y actualización del perfil personal'],
+    ['instituciones','Instituciones','Catálogo de instituciones de adscripción'],
+    ['areas_conocimiento','Áreas de conocimiento','Catálogo de áreas de conocimiento'],
+    ['areas_investigacion','Áreas de investigación','Catálogo de áreas temáticas de investigación'],
+    ['tipos_investigacion','Tipos de investigaciones','Catálogo de tipos de investigación'],
+    ['noticias','Noticias','Administración de noticias públicas'],
+    ['about','Quiénes somos','Contenido institucional de la Red'],
+    ['portada','Portada','Textos, contacto, redes y cifras de la portada pública'],
+    ['mensajes_contacto','Mensajes de contacto','Mensajes recibidos desde el sitio público'],
+    ['seguridad_modulos','Seguridad - Módulos','Catálogo de módulos del sistema'],
+    ['seguridad_permisos','Seguridad - Permisos','Permisos de lectura, escritura, actualización y eliminación'],
+    ['seguridad_roles','Seguridad - Roles','Roles y permisos asociados'],
+    ['seguridad_usuarios','Seguridad - Usuarios','Usuarios, activación y roles']
+  ];
+
+  for(const [clave,nombre,descripcion] of modulos){
+    await pool.query(
+      `INSERT INTO seguridad_modulos (clave,nombre,descripcion,activo)
+       VALUES (?,?,?,1)
+       ON DUPLICATE KEY UPDATE nombre=VALUES(nombre),descripcion=VALUES(descripcion),activo=1`,
+      [clave,nombre,descripcion]
+    );
+  }
+
+  for(const accion of ['lectura','escritura','actualizar','eliminar']){
+    await pool.query(
+      `INSERT INTO seguridad_permisos (modulo_id,accion,clave,descripcion,activo)
+       SELECT m.id, ?, CONCAT(m.clave,'.',?), CONCAT(?, ' - ', m.nombre), 1
+       FROM seguridad_modulos m
+       ON DUPLICATE KEY UPDATE
+         modulo_id=VALUES(modulo_id),
+         accion=VALUES(accion),
+         descripcion=VALUES(descripcion),
+         activo=1`,
+      [accion,accion,accion[0].toUpperCase()+accion.slice(1)]
+    );
+  }
+
+  await pool.query(
+    `INSERT IGNORE INTO seguridad_rol_permisos (rol_id,permiso_id)
+     SELECT r.id,p.id
+     FROM seguridad_roles r
+     CROSS JOIN seguridad_permisos p
+     WHERE r.clave='administrador'`
+  );
+
+  catalogoSeguridadListo=true;
+}
+
 export async function getUserSession(id) {
+  await ensureSystemModules();
   const [users] = await pool.query(
     `SELECT id, usuario, nombre_completo, correo, activo
      FROM usuarios
@@ -96,6 +155,7 @@ export async function getUserSession(id) {
 }
 
 export async function listModules() {
+  await ensureSystemModules();
   const [rows] = await pool.query(
     `SELECT m.id, m.clave, m.nombre, m.descripcion, m.activo,
       COUNT(p.id) permisos
@@ -130,6 +190,7 @@ export async function removeModule(id) {
 }
 
 export async function listPermissions() {
+  await ensureSystemModules();
   const [rows] = await pool.query(
     `SELECT p.id, p.modulo_id, m.nombre modulo, m.clave modulo_clave, p.accion, p.clave, p.descripcion, p.activo
      FROM seguridad_permisos p JOIN seguridad_modulos m ON m.id=p.modulo_id
@@ -161,6 +222,7 @@ export async function removePermission(id) {
 }
 
 export async function listRoles() {
+  await ensureSystemModules();
   const [rows] = await pool.query(
     `SELECT r.id, r.clave, r.nombre, r.descripcion, r.activo,
       GROUP_CONCAT(DISTINCT p.id ORDER BY p.id) permiso_ids,
