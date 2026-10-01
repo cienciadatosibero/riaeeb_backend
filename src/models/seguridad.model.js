@@ -6,23 +6,50 @@ const splitText = (v) => String(v || '').split('||').filter(Boolean);
 
 export async function getUserSession(id) {
   const [users] = await pool.query(
-    `SELECT id, usuario, nombre_completo, correo, activo FROM usuarios WHERE id=? LIMIT 1`, [id]
+    `SELECT id, usuario, nombre_completo, correo, activo
+     FROM usuarios
+     WHERE id=?
+     LIMIT 1`,
+    [id]
   );
+
   const user = users[0];
   if (!user) return null;
 
   const [roles] = await pool.query(
-    `SELECT r.id, r.clave, r.nombre
-     FROM usuario_roles ur JOIN seguridad_roles r ON r.id=ur.rol_id
-     WHERE ur.usuario_id=? AND r.activo=1 ORDER BY r.id`, [id]
-  );
-  const [perms] = await pool.query(
-    `SELECT DISTINCT p.clave
+    `SELECT r.id, LOWER(TRIM(r.clave)) AS clave, r.nombre
      FROM usuario_roles ur
-     JOIN seguridad_rol_permisos rp ON rp.rol_id=ur.rol_id
-     JOIN seguridad_permisos p ON p.id=rp.permiso_id AND p.activo=1
-     WHERE ur.usuario_id=?`, [id]
+     JOIN seguridad_roles r
+       ON r.id=ur.rol_id
+      AND r.activo=1
+     WHERE ur.usuario_id=?
+     ORDER BY r.id`,
+    [id]
   );
+
+  // No usamos p.clave para autorizar porque puede haber quedado desfasada
+  // respecto a la clave del módulo. La clave efectiva se construye siempre
+  // como modulo.accion.
+  const [perms] = await pool.query(
+    `SELECT DISTINCT
+       CONCAT(LOWER(TRIM(m.clave)), '.', LOWER(TRIM(p.accion))) AS clave
+     FROM usuario_roles ur
+     JOIN seguridad_roles r
+       ON r.id=ur.rol_id
+      AND r.activo=1
+     JOIN seguridad_rol_permisos rp
+       ON rp.rol_id=ur.rol_id
+     JOIN seguridad_permisos p
+       ON p.id=rp.permiso_id
+      AND p.activo=1
+     JOIN seguridad_modulos m
+       ON m.id=p.modulo_id
+      AND m.activo=1
+     WHERE ur.usuario_id=?
+     ORDER BY clave`,
+    [id]
+  );
+
   const [profiles] = await pool.query(
     `SELECT i.*, ins.nombre institucion_catalogo, ins.logo_url logo_catalogo,
       (
@@ -40,19 +67,30 @@ export async function getUserSession(id) {
      FROM investigadores i
      LEFT JOIN instituciones ins ON ins.id=i.institucion_id
      WHERE i.usuario_id=?
-     LIMIT 1`, [id]
+     LIMIT 1`,
+    [id]
   );
-  const profile = profiles[0] ? {
-    ...profiles[0],
-    area_ids: splitIds(profiles[0].area_ids),
-    areas: splitText(profiles[0].areas),
-  } : null;
+
+  const profile = profiles[0]
+    ? {
+        ...profiles[0],
+        area_ids: splitIds(profiles[0].area_ids),
+        areas: splitText(profiles[0].areas),
+      }
+    : null;
+
+  const roleKeys = roles.map((r) => r.clave);
+  const permissions = perms.map((p) => p.clave);
+
+  if (roleKeys.includes('administrador') && !permissions.includes('*')) {
+    permissions.push('*');
+  }
 
   return {
     ...user,
-    roles: roles.map((r) => r.clave),
+    roles: roleKeys,
     roles_detalle: roles,
-    permissions: perms.map((p) => p.clave),
+    permissions,
     profile,
   };
 }
