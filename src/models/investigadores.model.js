@@ -27,11 +27,9 @@ const baseSelect=`
 const map=(rows)=>rows.map((r)=>({...r,area_ids:splitIds(r.area_ids),areas:splitText(r.areas)}));
 
 export async function findAll(){
-  // "Investigadores de la Red" NO es un catálogo independiente.
-  // Solo muestra usuarios reales, activos, con rol investigador.
+  // Personas de la Red: usuarios reales y activos con rol Investigador o Estudiante.
   const [rows]=await pool.query(`${baseSelect}
     WHERE i.activo=1
-      AND i.tipo_perfil='investigador'
       AND i.usuario_id IS NOT NULL
       AND u.activo=1
       AND EXISTS (
@@ -39,27 +37,34 @@ export async function findAll(){
         FROM usuario_roles ur
         JOIN seguridad_roles r ON r.id=ur.rol_id AND r.activo=1
         WHERE ur.usuario_id=i.usuario_id
-          AND LOWER(TRIM(r.clave))='investigador'
+          AND LOWER(TRIM(r.clave)) IN ('investigador','estudiante')
       )
-    ORDER BY i.orden ASC,i.nombre ASC`);
-  return map(rows);
+    ORDER BY CASE WHEN i.tipo_perfil='investigador' THEN 0 ELSE 1 END,
+             i.orden ASC,i.nombre ASC`);
+  return map(rows).map((r)=>({
+    ...r,
+    categoria_red: r.tipo_perfil==='estudiante' ? 'Estudiante de la Red' : 'Investigador de la Red'
+  }));
 }
 
 export async function findAllAdmin(){
-  // El panel administrativo lista únicamente perfiles ligados a usuarios
-  // que actualmente tienen el rol investigador.
+  // La membresía nace en Seguridad > Usuarios; aquí se administra la información pública.
   const [rows]=await pool.query(`${baseSelect}
-    WHERE i.tipo_perfil='investigador'
-      AND i.usuario_id IS NOT NULL
+    WHERE i.usuario_id IS NOT NULL
       AND EXISTS (
         SELECT 1
         FROM usuario_roles ur
-        JOIN seguridad_roles r ON r.id=ur.rol_id
+        JOIN seguridad_roles r ON r.id=ur.rol_id AND r.activo=1
         WHERE ur.usuario_id=i.usuario_id
-          AND LOWER(TRIM(r.clave))='investigador'
+          AND LOWER(TRIM(r.clave)) IN ('investigador','estudiante')
       )
-    ORDER BY u.activo DESC,i.orden ASC,i.nombre ASC`);
-  return map(rows);
+    ORDER BY u.activo DESC,
+             CASE WHEN i.tipo_perfil='investigador' THEN 0 ELSE 1 END,
+             i.orden ASC,i.nombre ASC`);
+  return map(rows).map((r)=>({
+    ...r,
+    categoria_red: r.tipo_perfil==='estudiante' ? 'Estudiante de la Red' : 'Investigador de la Red'
+  }));
 }
 
 export async function findById(id){
