@@ -1,11 +1,44 @@
 import { Router } from 'express';
 import * as ctrl from '../controllers/contacto.controller.js';
 import { auth, requirePermission } from '../middlewares/auth.js';
+
 const router=Router();
-router.get('/admin',auth,requirePermission('mensajes_contacto','lectura'),ctrl.listAdmin);
-router.put('/:id/leido',auth,requirePermission('mensajes_contacto','actualizar'),ctrl.mark);
-router.put('/:id/respuesta',auth,requirePermission('mensajes_contacto','actualizar'),ctrl.saveReply);
-router.post('/:id/responder',auth,requirePermission('mensajes_contacto','actualizar'),ctrl.reply);
-router.delete('/:id',auth,requirePermission('mensajes_contacto','eliminar'),ctrl.remove);
+
+router.get(
+  '/admin',
+  auth,
+  requirePermission('mensajes_contacto','lectura'),
+  ctrl.listAdmin
+);
+
+router.put(
+  '/:id/leido',
+  auth,
+  requirePermission('mensajes_contacto','actualizar'),
+  ctrl.mark
+);
+
+router.put(
+  '/:id/respuesta',
+  auth,
+  requirePermission('mensajes_contacto','actualizar'),
+  ctrl.saveReply
+);
+
+router.put(
+  '/:id/respondido',
+  auth,
+  requirePermission('mensajes_contacto','actualizar'),
+  ctrl.markResponded
+);
+
+router.delete(
+  '/:id',
+  auth,
+  requirePermission('mensajes_contacto','eliminar'),
+  ctrl.remove
+);
+
 router.post('/',ctrl.create);
+
 export default router;
